@@ -1,3 +1,4 @@
+import gc
 import math
 
 import numpy as np
@@ -1013,6 +1014,47 @@ def test_solve_arm_equivalence(monkeypatch, show_viewer, tol):
         # within rounding of each other and never on the same value: a gap of exactly zero means one of them ran twice.
         assert np.abs(compared.astype(np.float64) - reference.astype(np.float64)).max() > 0.0
         assert_allclose(compared, reference, tol=tol, err_msg=f"step {i_step}")
+
+
+@pytest.mark.required
+@pytest.mark.parametrize("backend", [gs.cuda])
+def test_monolithic_cuda_graph_lifecycle(show_viewer, tol):
+    """A graph-enabled monolithic solve matches ordinary launches, including after its first scene is destroyed."""
+
+    def simulate(enable_monolithic_cuda_graph):
+        scene = gs.Scene(
+            rigid_options=gs.options.RigidOptions(
+                enable_monolithic_cuda_graph=enable_monolithic_cuda_graph,
+                noslip_iterations=1,
+            ),
+            viewer_options=gs.options.ViewerOptions(
+                camera_pos=(1.0, -1.0, 0.7),
+                camera_lookat=(0.0, 0.0, 0.05),
+            ),
+            show_viewer=show_viewer,
+        )
+        scene.add_entity(gs.morphs.Plane())
+        box = scene.add_entity(
+            gs.morphs.Box(
+                size=(0.1, 0.1, 0.1),
+                pos=(0.0, 0.0, 0.05),
+            )
+        )
+        scene.build(n_envs=32)
+        assert scene.rigid_solver.rigid_config.prefer_decomposed_solver == 0
+        for _ in range(3):
+            scene.step()
+        positions = tensor_to_array(box.get_pos()).copy()
+        scene.destroy()
+        return positions
+
+    reference = simulate(enable_monolithic_cuda_graph=False)
+    actual = simulate(enable_monolithic_cuda_graph=True)
+    gc.collect()
+    recreated = simulate(enable_monolithic_cuda_graph=True)
+
+    assert_allclose(actual, reference, tol=tol)
+    assert_allclose(recreated, reference, tol=tol)
 
 
 @pytest.mark.slow  # ~200s

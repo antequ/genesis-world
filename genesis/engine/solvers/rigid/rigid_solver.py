@@ -624,8 +624,12 @@ class RigidSolver(GravityMixin, TimeBasedMixin, KinematicSolver):
             constraint_layout_batch_first=constraint_layout_batch_first,
         )
 
-        # Prefer the monolith solver on CPU (always faster there, perf dispatch is a waste of effort)
-        if gs.backend == gs.cpu or self.sim.options.requires_grad:
+        # Prefer the monolith on CPU (always faster there), for gradients, or when its CUDA graph is requested.
+        if (
+            gs.backend == gs.cpu
+            or self.sim.options.requires_grad
+            or (gs.backend == gs.cuda and self._options.enable_monolithic_cuda_graph)
+        ):
             rigid_config["prefer_decomposed_solver"] = 0
 
         # Per-DOF mass-block bounds (see dofs_mass_block_start in array_class.py), computed here because the tiled

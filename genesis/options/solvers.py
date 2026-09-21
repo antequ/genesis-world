@@ -490,6 +490,8 @@ class RigidOptions(GravityMixin, TimeBasedMixin):
     constraint_solver : gs.constraint_solver, optional
         Constraint solver type. Current supported constraint solvers are 'gs.constraint_solver.CG' (conjugate gradient)
         and 'gs.constraint_solver.Newton' (Newton's method). Defaults to 'Newton'.
+    enable_monolithic_cuda_graph : bool, optional
+        Whether to run the monolithic constraint-solver core in a CUDA graph. Defaults to False.
     iterations : int, optional
         Maximum number of iterations for the constraint solver; the solve exits early once its convergence tolerance
         is met, so this bound only binds on hard steps. Defaults to 50.
@@ -608,6 +610,7 @@ class RigidOptions(GravityMixin, TimeBasedMixin):
 
     # constraint solver
     constraint_solver: gs.constraint_solver = gs.constraint_solver.Newton
+    enable_monolithic_cuda_graph: StrictBool = False
     iterations: PositiveInt = 50
     tolerance: PositiveFloat | None = None
     ls_iterations: PositiveInt = 50
