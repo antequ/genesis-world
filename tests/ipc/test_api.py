@@ -69,6 +69,56 @@ def test_skip_unconsumed_rigid_state_transfers(monkeypatch):
 
 
 @pytest.mark.required
+@pytest.mark.parametrize(
+    "enable_fem_state_sync, consumer, expected_world_retrievals, expected_fem_retrievals",
+    [
+        (True, None, 1, 1),
+        (False, None, 0, 0),
+        (False, "gui", 1, 0),
+        (False, "external_articulation", 1, 0),
+    ],
+)
+def test_ipc_host_state_retrieval_policy(
+    monkeypatch,
+    enable_fem_state_sync,
+    consumer,
+    expected_world_retrievals,
+    expected_fem_retrievals,
+):
+    """Device-resident callers may skip host sync, while GUI and articulation consumers still retrieve state."""
+    from genesis.engine.couplers import IPCCoupler
+    from genesis.engine.couplers.ipc_coupler import coupler as ipc_coupler_module
+
+    world = SimpleNamespace(advance=MagicMock(), retrieve=MagicMock())
+    gui = MagicMock() if consumer == "gui" else None
+    entities_by_coup_type = {}
+    if consumer == "external_articulation":
+        entities_by_coup_type[COUPLING_TYPE.EXTERNAL_ARTICULATION] = [object()]
+
+    coupler = SimpleNamespace(
+        _ipc_world=world,
+        is_active=True,
+        options=gs.options.IPCCouplerOptions(enable_fem_state_sync=enable_fem_state_sync),
+        _ipc_gui=gui,
+        _entities_by_coup_type=entities_by_coup_type,
+        _store_gs_rigid_states=MagicMock(),
+        _pre_advance_external_articulation=MagicMock(),
+        _retrieve_fem_states=MagicMock(),
+        _retrieve_rigid_states=MagicMock(),
+        _apply_abd_coupling_forces=MagicMock(),
+        _post_advance_external_articulation=MagicMock(),
+    )
+    monkeypatch.setattr(ipc_coupler_module.ps, "frame_tick", MagicMock())
+
+    IPCCoupler.couple(coupler, 0)
+
+    world.advance.assert_called_once_with()
+    assert world.retrieve.call_count == expected_world_retrievals
+    assert coupler._retrieve_fem_states.call_count == expected_fem_retrievals
+    coupler._retrieve_rigid_states.assert_called_once_with()
+
+
+@pytest.mark.required
 def test_needs_coup():
     scene = gs.Scene(
         coupler_options=gs.options.IPCCouplerOptions(),

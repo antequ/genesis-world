@@ -821,7 +821,7 @@ class IPCCoupler(RBC):
         Flow:
         1. Store Genesis rigid states (common)
         2. Pre-advance processing (per entity type)
-        3. IPC advance and retrieve host scene state
+        3. IPC advance and retrieve host scene state when required
         4. Retrieve coupled FEM and rigid states
         5. Post-advance processing (per entity type)
         """
@@ -838,10 +838,16 @@ class IPCCoupler(RBC):
 
         # Step 3: IPC advance
         self._ipc_world.advance()
-        self._ipc_world.retrieve()
+        if (
+            self.options.enable_fem_state_sync
+            or self._ipc_gui is not None
+            or COUPLING_TYPE.EXTERNAL_ARTICULATION in self._entities_by_coup_type
+        ):
+            self._ipc_world.retrieve()
 
         # Step 4: Retrieve states
-        self._retrieve_fem_states()
+        if self.options.enable_fem_state_sync:
+            self._retrieve_fem_states()
         self._retrieve_rigid_states()
 
         # Step 5: Post-advance processing (per entity type)

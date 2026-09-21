@@ -31,12 +31,16 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.required
-def test_ipc_only_box_pose_stays_synchronized(show_viewer):
+@pytest.mark.parametrize("enable_fem_state_sync", [True, False])
+def test_ipc_only_box_pose_stays_synchronized(enable_fem_state_sync, show_viewer):
     """An analytical box exposes a stale Genesis pose if IPC restores it before the rigid substep."""
     scene = gs.Scene(
         sim_options=gs.options.SimOptions(dt=0.004, substeps=2),
         rigid_options=gs.options.RigidOptions(dt=0.002),
-        coupler_options=gs.options.IPCCouplerOptions(enable_rigid_rigid_contact=False),
+        coupler_options=gs.options.IPCCouplerOptions(
+            enable_rigid_rigid_contact=False,
+            enable_fem_state_sync=enable_fem_state_sync,
+        ),
         viewer_options=gs.options.ViewerOptions(
             camera_pos=(1.0, -1.0, 0.8),
             camera_lookat=(0.0, 0.0, 0.5),
