@@ -296,17 +296,30 @@ class ConstraintSolver:
         )
 
     def resolve(self):
-        # func_solve_init is launched by each dispatch entrypoint (func_solve_body_monolith / func_solve_decomposed),
-        # not here: only the entrypoint statically knows its arm, which determines whether the init factor/gradient is
-        # done (monolith) or skipped (decomposed re-factors in-loop).
-        func_solve_body(
-            self._solver.dyn_state,
-            self.constraint_state,
-            self._solver.dyn_info,
-            self._solver.rigid_info,
-            self._solver.rigid_config,
-            self._n_iterations,
-        )
+        if (
+            self._solver._options.enable_cuda_graph is True
+            and gs.backend == gs.cuda
+            and not self._solver._requires_grad
+            and self._solver.rigid_config.prefer_decomposed_solver == 0
+        ):
+            _kernel_solve_monolith_graph(
+                self._solver.dyn_state,
+                self.constraint_state,
+                self._solver.dyn_info,
+                self._solver.rigid_info,
+                self._solver.rigid_config,
+            )
+        else:
+            # The legacy dispatch entrypoints own solve initialization because only the selected arm knows whether
+            # the initial factor and gradient are needed.
+            func_solve_body(
+                self._solver.dyn_state,
+                self.constraint_state,
+                self._solver.dyn_info,
+                self._solver.rigid_info,
+                self._solver.rigid_config,
+                self._n_iterations,
+            )
 
         func_update_qacc(self._solver.dyn_state, self.constraint_state, self._solver.rigid_config, self._solver._errno)
 
@@ -5163,8 +5176,8 @@ def initialize_Ma(
 # ======================================================= Core ========================================================
 
 
-@qd.kernel(fastcache=True)
-def func_solve_init(
+@qd.func(requires_top_level=True)
+def _func_solve_init(
     dyn_state: array_class.DynState,
     constraint_state: array_class.ConstraintState,
     dyn_info: array_class.DynInfo,
@@ -5352,6 +5365,18 @@ def func_solve_init(
                     )
 
 
+@qd.kernel(fastcache=True)
+def func_solve_init(
+    dyn_state: array_class.DynState,
+    constraint_state: array_class.ConstraintState,
+    dyn_info: array_class.DynInfo,
+    rigid_info: array_class.RigidInfo,
+    rigid_config: qd.template(),
+    write_L: bool,
+):
+    _func_solve_init(dyn_state, constraint_state, dyn_info, rigid_info, rigid_config, write_L)
+
+
 @qd.func
 def func_solve_iter(
     i_b,
@@ -5438,14 +5463,13 @@ def func_solve_body(
 ) -> None: ...
 
 
-@qd.kernel(fastcache=True)
-def _kernel_solve_monolith(
+@qd.func
+def _func_solve_monolith(
     dyn_state: array_class.DynState,
     constraint_state: array_class.ConstraintState,
     dyn_info: array_class.DynInfo,
     rigid_info: array_class.RigidInfo,
     rigid_config: qd.template(),
-    _n_iterations: int,
 ):
     _B = constraint_state.grad.shape[1]
     n_dofs = constraint_state.qacc.shape[0]
@@ -5490,6 +5514,18 @@ def _kernel_solve_monolith(
                 func_solve_iter(i_b, it, dyn_state, constraint_state, dyn_info, rigid_info, rigid_config)
         else:
             constraint_state.improved[i_b] = False
+
+
+@qd.kernel(fastcache=True)
+def _kernel_solve_monolith(
+    dyn_state: array_class.DynState,
+    constraint_state: array_class.ConstraintState,
+    dyn_info: array_class.DynInfo,
+    rigid_info: array_class.RigidInfo,
+    rigid_config: qd.template(),
+    _n_iterations: int,
+):
+    _func_solve_monolith(dyn_state, constraint_state, dyn_info, rigid_info, rigid_config)
 
 
 @func_solve_body.register(
@@ -5619,6 +5655,18 @@ def func_update_qacc(
     qd.loop_config(serialize=rigid_config.para_level < gs.PARA_LEVEL.ALL)
     for i_b in range(_B):
         constraint_state.is_warmstart[i_b] = True
+
+
+@qd.kernel(graph=True, fastcache=True)
+def _kernel_solve_monolith_graph(
+    dyn_state: array_class.DynState,
+    constraint_state: array_class.ConstraintState,
+    dyn_info: array_class.DynInfo,
+    rigid_info: array_class.RigidInfo,
+    rigid_config: qd.template(),
+):
+    _func_solve_init(dyn_state, constraint_state, dyn_info, rigid_info, rigid_config, write_L=True)
+    _func_solve_monolith(dyn_state, constraint_state, dyn_info, rigid_info, rigid_config)
 
 
 from genesis.utils.deprecated_module_wrapper import create_virtual_deprecated_module

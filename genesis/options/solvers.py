@@ -490,6 +490,10 @@ class RigidOptions(GravityMixin, TimeBasedMixin):
     constraint_solver : gs.constraint_solver, optional
         Constraint solver type. Current supported constraint solvers are 'gs.constraint_solver.CG' (conjugate gradient)
         and 'gs.constraint_solver.Newton' (Newton's method). Defaults to 'Newton'.
+    enable_cuda_graph : bool, optional
+        Whether to use CUDA graph replay for rigid constraint solving. True selects a graph path for the current CUDA
+        device, while False uses ordinary kernel launches. If None, Genesis selects the path automatically. Defaults
+        to None.
     iterations : int, optional
         Maximum number of iterations for the constraint solver; the solve exits early once its convergence tolerance
         is met, so this bound only binds on hard steps. Defaults to 50.
@@ -608,6 +612,7 @@ class RigidOptions(GravityMixin, TimeBasedMixin):
 
     # constraint solver
     constraint_solver: gs.constraint_solver = gs.constraint_solver.Newton
+    enable_cuda_graph: StrictBool | None = None
     iterations: PositiveInt = 50
     tolerance: PositiveFloat | None = None
     ls_iterations: PositiveInt = 50

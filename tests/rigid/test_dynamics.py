@@ -7,7 +7,6 @@ from quadrants.lang._perf_dispatch import PerformanceDispatcher
 
 import genesis as gs
 import genesis.utils.geom as gu
-from genesis.engine.solvers.rigid.constraint import solver as constraint_solver
 from genesis.engine.solvers.rigid.constraint.solver import ConstraintSolver
 from genesis.utils.misc import qd_to_numpy, tensor_to_array
 
@@ -1013,6 +1012,40 @@ def test_solve_arm_equivalence(monkeypatch, show_viewer, tol):
         # within rounding of each other and never on the same value: a gap of exactly zero means one of them ran twice.
         assert np.abs(compared.astype(np.float64) - reference.astype(np.float64)).max() > 0.0
         assert_allclose(compared, reference, tol=tol, err_msg=f"step {i_step}")
+
+
+@pytest.mark.parametrize("backend", [gs.cuda])
+def test_cuda_graph_solve(show_viewer):
+    scene = gs.Scene(
+        rigid_options=gs.options.RigidOptions(
+            enable_cuda_graph=True,
+        ),
+        viewer_options=gs.options.ViewerOptions(
+            camera_pos=(1.0, -1.0, 0.6),
+            camera_lookat=(0.0, 0.0, 0.05),
+        ),
+        show_viewer=show_viewer,
+    )
+    scene.add_entity(
+        gs.morphs.Plane(),
+        vis_mode="collision",
+    )
+    box = scene.add_entity(
+        gs.morphs.Box(
+            pos=(0.0, 0.0, 0.05),
+            size=(0.1, 0.1, 0.1),
+        ),
+        vis_mode="collision",
+    )
+    scene.build(n_envs=2)
+
+    scene.step()
+    scene.step()
+
+    positions = box.get_pos()
+    assert torch.isfinite(positions).all()
+    assert_allclose(positions[0], positions[1], tol=1e-5)
+    assert (positions[:, 2] > 0.04).all()
 
 
 @pytest.mark.slow  # ~200s

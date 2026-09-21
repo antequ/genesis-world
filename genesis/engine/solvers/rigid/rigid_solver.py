@@ -611,6 +611,7 @@ class RigidSolver(GravityMixin, TimeBasedMixin, KinematicSolver):
             enable_cone_free_hessian_reuse=enable_cone_free_hessian_reuse,
             integrator=self._integrator,
             solver_type=self._options.constraint_solver,
+            prefer_decomposed_solver=-1,
             broadphase_traversal=self._resolve_broadphase_traversal(),
             # Parallelize init over (constraints, envs) when envs alone don't saturate the GPU.
             parallel_init=(
@@ -624,9 +625,14 @@ class RigidSolver(GravityMixin, TimeBasedMixin, KinematicSolver):
             constraint_layout_batch_first=constraint_layout_batch_first,
         )
 
-        # Prefer the monolith solver on CPU (always faster there, perf dispatch is a waste of effort)
+        # Prefer the monolith solver on CPU and for gradients. An explicit CUDA graph choice selects the graph path
+        # supported by the current device generation.
         if gs.backend == gs.cpu or self.sim.options.requires_grad:
             rigid_config["prefer_decomposed_solver"] = 0
+        elif gs.backend == gs.cuda and self._options.enable_cuda_graph is not None:
+            rigid_config["prefer_decomposed_solver"] = int(
+                self._options.enable_cuda_graph and torch.cuda.get_device_capability(gs.device)[0] >= 9
+            )
 
         # Per-DOF mass-block bounds (see dofs_mass_block_start in array_class.py), computed here because the tiled
         # factor arms below are sized for the largest block; _init_tree_fields uploads them.
