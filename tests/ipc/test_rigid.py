@@ -194,6 +194,58 @@ def test_objects_freefall(n_envs, n_substeps, show_viewer):
         assert_allclose(p_delta, expected_displacement, tol=TOL_SINGLE)
 
 
+def test_ipc_only_pose_after_rigid_substeps(show_viewer):
+    DT = 0.01
+    N_SUBSTEPS = 2
+    INITIAL_POS = (0.0, 0.0, 0.055)
+
+    scene = gs.Scene(
+        sim_options=gs.options.SimOptions(
+            dt=DT * N_SUBSTEPS,
+            substeps=N_SUBSTEPS,
+        ),
+        rigid_options=gs.options.RigidOptions(
+            dt=DT,
+        ),
+        coupler_options=gs.options.IPCCouplerOptions(
+            enable_rigid_rigid_contact=False,
+        ),
+        viewer_options=gs.options.ViewerOptions(
+            camera_pos=(1.0, -1.0, 0.6),
+            camera_lookat=(0.0, 0.0, 0.05),
+        ),
+        show_viewer=show_viewer,
+    )
+    scene.add_entity(
+        morph=gs.morphs.Plane(),
+        material=gs.materials.Rigid(
+            coup_type="ipc_only",
+        ),
+        vis_mode="collision",
+    )
+    box = scene.add_entity(
+        morph=gs.morphs.Box(
+            pos=INITIAL_POS,
+            size=(0.1, 0.1, 0.1),
+        ),
+        material=gs.materials.Rigid(
+            coup_type="ipc_only",
+        ),
+        vis_mode="collision",
+    )
+    scene.build(n_envs=2)
+
+    scene.step()
+
+    ipc_pos = get_ipc_positions(
+        scene,
+        solver_type="rigid",
+        idx=scene.rigid_solver.entities.index(box),
+        envs_idx=range(2),
+    ).mean(axis=-2)
+    assert_allclose(box.get_qpos()[..., :3], ipc_pos, tol=TOL_SINGLE)
+
+
 @pytest.mark.slow  # ~200s
 @pytest.mark.parametrize("n_envs", [0, 2])
 def test_ground_clearance(n_envs, show_viewer):

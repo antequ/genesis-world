@@ -821,8 +821,8 @@ class IPCCoupler(RBC):
         Flow:
         1. Store Genesis rigid states (common)
         2. Pre-advance processing (per entity type)
-        3. IPC advance + retrieve (common, only once)
-        4. Retrieve FEM states (common)
+        3. IPC advance and retrieve host scene state
+        4. Retrieve coupled FEM and rigid states
         5. Post-advance processing (per entity type)
         """
         assert self._ipc_world is not None
@@ -836,7 +836,7 @@ class IPCCoupler(RBC):
         # Step 2: Pre-advance processing (per entity type)
         self._pre_advance_external_articulation()
 
-        # Step 3: IPC advance + retrieve (common)
+        # Step 3: IPC advance
         self._ipc_world.advance()
         self._ipc_world.retrieve()
 
@@ -847,7 +847,6 @@ class IPCCoupler(RBC):
         # Step 5: Post-advance processing (per entity type)
         self._apply_abd_coupling_forces()
         self._post_advance_external_articulation()
-        self._post_advance_ipc_only()
 
         # Step 6: Update GUI if enabled
         if self._ipc_gui is not None:
@@ -996,11 +995,11 @@ class IPCCoupler(RBC):
             # Update ref_dof_prev for next timestep
             ad.ref_dof_prev[:] = ad.qpos_new
 
-            # Store current link transforms to prev_links_transform
-            for env_idx in range(self.sim._B):
-                for child_link, prev_link_transform in zip(ad.joints_child_link, ad.prev_links_transform):
-                    link_transform = self._abd_transforms_by_link[child_link][env_idx]
-                    prev_link_transform[env_idx] = link_transform.copy()
+            if self.options.enable_rigid_dofs_sync:
+                for env_idx in range(self.sim._B):
+                    for child_link, prev_link_transform in zip(ad.joints_child_link, ad.prev_links_transform):
+                        link_transform = self._abd_transforms_by_link[child_link][env_idx]
+                        prev_link_transform[env_idx] = link_transform.copy()
 
     def _post_advance_ipc_only(self):
         """
@@ -1076,7 +1075,7 @@ class IPCCoupler(RBC):
         O(num_rigid_bodies) instead of O(total_geometries).
         Also populates data arrays for force computation.
         """
-        if self._abd_state_feature is None:
+        if self._abd_state_feature is None or not self._abd_data_by_link:
             return
 
         # Single batch copy of ALL ABD states from IPC
@@ -1112,11 +1111,18 @@ class IPCCoupler(RBC):
         if not self.rigid_solver.is_active:
             return
 
-        # Store qpos for all entities. It will be used by 'external_articulation' coupling mode
-        assert self.rigid_solver.qpos is not None
-        entities_qpos = qd_to_numpy(self.rigid_solver.qpos, transpose=True)
-        for entity, articulation_data in self._articulation_data_by_entity.items():
-            articulation_data.qpos_stored[:] = entities_qpos[..., entity.q_start : entity.q_end]
+        if self._articulation_data_by_entity:
+            # Store qpos for all external-articulation entities
+            assert self.rigid_solver.qpos is not None
+            entities_qpos = qd_to_numpy(self.rigid_solver.qpos, transpose=True)
+            for entity, articulation_data in self._articulation_data_by_entity.items():
+                articulation_data.qpos_stored[:] = entities_qpos[..., entity.q_start : entity.q_end]
+
+        has_link_transform_consumer = self._ipc_stc is not None or (
+            self.options.enable_rigid_dofs_sync and bool(self._articulation_data_by_entity)
+        )
+        if not has_link_transform_consumer:
+            return
 
         # Store transforms for all rigid links
         links_pos = qd_to_numpy(self.rigid_solver.dyn_state.links.pos, transpose=True)
