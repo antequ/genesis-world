@@ -1,4 +1,6 @@
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -17,6 +19,53 @@ from .utils import (
 
 if TYPE_CHECKING:
     from genesis.engine.couplers import IPCCoupler
+
+
+@pytest.mark.required
+def test_ipc_only_pose_restore_follows_rigid_substep():
+    """IPC owns an ipc_only body's pose, so the rigid substep must run before that pose is restored."""
+    from genesis.engine.couplers import IPCCoupler
+    from genesis.engine.solvers.rigid.rigid_solver import RigidSolver
+
+    events = []
+    coupler = object.__new__(IPCCoupler)
+    coupler._ipc_world = object()
+    coupler._coup_type_by_entity = {object(): COUPLING_TYPE.IPC_ONLY}
+    coupler._post_advance_ipc_only = lambda: events.append("restore IPC pose")
+
+    solver = SimpleNamespace(is_active=True, sim=SimpleNamespace(coupler=coupler))
+    solver.substep = lambda _f: events.append("rigid substep")
+
+    RigidSolver.substep_post_coupling(solver, 0)
+
+    assert events == ["rigid substep", "restore IPC pose"]
+
+
+@pytest.mark.required
+def test_skip_unconsumed_rigid_state_transfers(monkeypatch):
+    """Rigid state transfers are omitted when no IPC path consumes their result."""
+    from genesis.engine.couplers import IPCCoupler
+    from genesis.engine.couplers.ipc_coupler import coupler as ipc_coupler_module
+
+    qd_to_numpy = MagicMock()
+    monkeypatch.setattr(ipc_coupler_module, "qd_to_numpy", qd_to_numpy)
+    coupler = SimpleNamespace(
+        rigid_solver=SimpleNamespace(is_active=True),
+        _articulation_data_by_entity={},
+        _ipc_stc=None,
+        options=SimpleNamespace(enable_rigid_dofs_sync=True),
+    )
+
+    IPCCoupler._store_gs_rigid_states(coupler)
+
+    qd_to_numpy.assert_not_called()
+
+    state_feature = MagicMock()
+    coupler = SimpleNamespace(_abd_state_feature=state_feature, _abd_data_by_link={})
+
+    IPCCoupler._retrieve_rigid_states(coupler)
+
+    state_feature.copy_to.assert_not_called()
 
 
 @pytest.mark.required
