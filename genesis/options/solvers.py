@@ -296,6 +296,9 @@ class IPCCouplerOptions(BaseCouplerOptions):
         For external_articulation with non-fixed base: whether base link is fully driven by IPC physics.
         When False, base link uses SoftTransformConstraint controlled by Genesis. When True, base link
         is fully driven by IPC physics. Defaults to False.
+    enable_fem_state_sync : bool, optional
+        Whether to copy IPC FEM positions back to Genesis after each step. Disable this to avoid synchronization when
+        state is consumed directly from IPC. Genesis FEM getters then retain their previous state. Defaults to True.
     _show_ipc_gui : bool, optional
         [Dev/debug] Enable the libuipc built-in polyscope GUI viewer for inspecting the IPC scene.
         Defaults to False.
@@ -344,6 +347,7 @@ class IPCCouplerOptions(BaseCouplerOptions):
     two_way_coupling: StrictBool = True
     enable_rigid_dofs_sync: StrictBool = False
     free_base_driven_by_ipc: StrictBool = False
+    enable_fem_state_sync: StrictBool = True
 
     _show_ipc_gui: bool = PrivateAttr(default=False)
 

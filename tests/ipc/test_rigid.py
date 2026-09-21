@@ -194,7 +194,8 @@ def test_objects_freefall(n_envs, n_substeps, show_viewer):
         assert_allclose(p_delta, expected_displacement, tol=TOL_SINGLE)
 
 
-def test_ipc_only_pose_after_rigid_substeps(show_viewer):
+@pytest.mark.parametrize("enable_fem_state_sync", [True, False])
+def test_ipc_only_pose_after_rigid_substeps(enable_fem_state_sync, show_viewer):
     DT = 0.01
     N_SUBSTEPS = 2
     INITIAL_POS = (0.0, 0.0, 0.055)
@@ -209,6 +210,7 @@ def test_ipc_only_pose_after_rigid_substeps(show_viewer):
         ),
         coupler_options=gs.options.IPCCouplerOptions(
             enable_rigid_rigid_contact=False,
+            enable_fem_state_sync=enable_fem_state_sync,
         ),
         viewer_options=gs.options.ViewerOptions(
             camera_pos=(1.0, -1.0, 0.6),
@@ -237,13 +239,18 @@ def test_ipc_only_pose_after_rigid_substeps(show_viewer):
 
     scene.step()
 
-    ipc_pos = get_ipc_positions(
-        scene,
-        solver_type="rigid",
-        idx=scene.rigid_solver.entities.index(box),
-        envs_idx=range(2),
-    ).mean(axis=-2)
-    assert_allclose(box.get_qpos()[..., :3], ipc_pos, tol=TOL_SINGLE)
+    qpos = box.get_qpos()[..., :3]
+    if enable_fem_state_sync:
+        ipc_pos = get_ipc_positions(
+            scene,
+            solver_type="rigid",
+            idx=scene.rigid_solver.entities.index(box),
+            envs_idx=range(2),
+        ).mean(axis=-2)
+        assert_allclose(qpos, ipc_pos, tol=TOL_SINGLE)
+    else:
+        assert_allclose(qpos[0], qpos[1], tol=TOL_SINGLE)
+        assert (qpos[:, 2] > INITIAL_POS[2]).all()
 
 
 @pytest.mark.slow  # ~200s
